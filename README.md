@@ -1,6 +1,6 @@
 # sglang-diffusion-routing
 
-A demonstrative example of running SGLang Diffusion with a DP router, which supports `generation` (a lot of methods, including [SDE/CPS](https://github.com/sgl-project/sglang/pull/18806)), `health_check`, `update_weights_from_disk` (I am still working on [18306](https://github.com/sgl-project/sglang/pull/18306), but will merge soon).  
+A demonstrative example of running SGLang Diffusion with a DP router, which supports `generation` (a lot of methods, including [SDE/CPS](https://github.com/sgl-project/sglang/pull/18806)) and `health_check`.
 
 1. Copy all the codes of https://github.com/radixark/miles/pull/544 to here with sincere acknowledgment.
 2. Write up a detailed README on how to use SGLang Diffusion Router to launch multiple instances and send requests.
