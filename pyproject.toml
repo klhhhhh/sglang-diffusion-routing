@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sglang-d-router"
+version = "0.0.1"
+description = "Demonstrative DP router for SGLang Diffusion (ported from radixark/miles#544)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "httpx",
+  "pydantic",
+  "requests",
+  "tqdm",
+]
+
+[project.scripts]
+sglang-d-router = "sglang_d_router.cli:main"
