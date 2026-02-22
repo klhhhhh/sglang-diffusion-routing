@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 
 from sglang_diffusion_routing import DiffusionRouter
@@ -27,6 +28,7 @@ def _run_router_server(
     router = DiffusionRouter(args, verbose=args.verbose)
     for url in worker_urls:
         router.register_worker(url)
+        asyncio.run(router._refresh_worker_video_support(url))
 
     print(f"{log_prefix} starting router on {args.host}:{args.port}", flush=True)
     print(

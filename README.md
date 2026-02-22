@@ -113,14 +113,6 @@ with open('output.png', 'wb') as f:
 print('Saved to output.png')
 "
 
-# Video generation request
-curl -X POST http://localhost:30081/generate_video \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "Qwen/Qwen-Image",
-        "prompt": "a flowing river"
-    }'
-
 # Check per-worker health and load
 curl http://localhost:30081/health_workers
 ```
@@ -132,7 +124,7 @@ curl http://localhost:30081/health_workers
 - `GET /health`: aggregated router health.
 - `GET /health_workers`: per-worker health and active request counts.
 - `POST /generate`: forwards to worker `/v1/images/generations`.
-- `POST /generate_video`: forwards to worker `/v1/videos`.
+- `POST /generate_video`: forwards to worker `/v1/videos`; rejects image-only workers (`T2I`/`I2I`/`TI2I`) with `400`.
 - `POST /update_weights_from_disk`: broadcast to healthy workers.
 - `GET|POST|PUT|DELETE /{path}`: catch-all proxy forwarding.
 
@@ -176,7 +168,7 @@ They are not part of default unit test collection (`pytest tests/unit -v`).
 Single benchmark:
 
 ```bash
-SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_router.py \
+python tests/benchmarks/diffusion_router/bench_router.py \
     --model Qwen/Qwen-Image \
     --num-workers 2 \
     --num-prompts 20 \
@@ -186,7 +178,7 @@ SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_router
 Algorithm comparison:
 
 ```bash
-SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_routing_algorithms.py \
+python tests/benchmarks/diffusion_router/bench_routing_algorithms.py \
     --model Qwen/Qwen-Image \
     --num-workers 2 \
     --num-prompts 20 \

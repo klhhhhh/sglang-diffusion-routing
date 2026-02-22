@@ -16,9 +16,11 @@ from starlette.responses import Response
 logger = logging.getLogger(__name__)
 
 _METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
+_IMAGE_TASK_TYPES = {"T2I", "I2I", "TI2I"}
 
 
 class DiffusionRouter:
+
     def __init__(self, args, verbose: bool = False):
         """Initialize the router for load-balancing sglang-diffusion workers."""
         self.args = args
@@ -32,6 +34,9 @@ class DiffusionRouter:
         self.worker_request_counts: dict[str, int] = {}
         # URL -> consecutive health check failures
         self.worker_failure_counts: dict[str, int] = {}
+        # URL -> whether worker supports video generation
+        # True: supports, False: image-only, None: unknown/unprobed
+        self.worker_video_support: dict[str, bool | None] = {}
         # quarantined workers excluded from routing
         self.dead_workers: set[str] = set()
         self._health_task: asyncio.Task | None = None
@@ -139,14 +144,23 @@ class DiffusionRouter:
                 )
                 await asyncio.sleep(5)
 
-    def _use_url(self) -> str:
-        """Select a worker URL based on the configured routing algorithm."""
+    def _select_worker_by_routing(self, worker_urls: list[str] | None = None) -> str:
+        """Select a worker URL based on routing algorithm and optional candidates.
+
+        Args:
+            worker_urls: Optional list of worker URLs to consider. If provided,
+            only these workers will be considered for selection. If not provided,
+            all registered workers will be considered.
+        """
         if not self.worker_request_counts:
             raise RuntimeError("No workers registered in the pool")
 
         valid_workers = [
             w for w in self.worker_request_counts if w not in self.dead_workers
         ]
+        if worker_urls is not None:
+            allowed = {w for w in worker_urls if w in self.worker_request_counts}
+            valid_workers = [w for w in valid_workers if w in allowed]
         if not valid_workers:
             raise RuntimeError("No healthy workers available in the pool")
 
@@ -202,13 +216,14 @@ class DiffusionRouter:
             media_type=content_type,
         )
 
-    async def _forward_to_worker(self, request: Request, path: str) -> Response:
-        """Forward a request to a selected worker and return the response."""
+    async def _forward_to_worker(
+        self, request: Request, path: str, worker_urls: list[str] | None = None
+    ) -> Response:
+        """Forward request to a selected worker (optionally from candidate URLs)."""
         try:
-            worker_url = self._use_url()
+            worker_url = self._select_worker_by_routing(worker_urls=worker_urls)
         except RuntimeError as exc:
             return JSONResponse(status_code=503, content={"error": str(exc)})
-
         try:
             query = request.url.query
             url = (
@@ -242,6 +257,29 @@ class DiffusionRouter:
             )
         finally:
             self._finish_url(worker_url)
+
+    async def _probe_worker_video_support(self, worker_url: str) -> bool | None:
+        """Probe /v1/models and infer if this worker supports video generation."""
+        try:
+            response = await self.client.get(f"{worker_url}/v1/models", timeout=5.0)
+            if response.status_code == 200:
+                payload = response.json()
+                data = payload.get("data")
+                task_type = (
+                    data[0].get("task_type")
+                    if isinstance(data, list) and data
+                    else None
+                )
+                if isinstance(task_type, str):
+                    return task_type.upper() not in self._IMAGE_TASK_TYPES
+        except Exception:
+            return None
+
+    async def _refresh_worker_video_support(self, worker_url: str) -> None:
+        """Refresh cached video capability for a single worker."""
+        self.worker_video_support[worker_url] = await self._probe_worker_video_support(
+            worker_url
+        )
 
     async def _broadcast_to_workers(
         self, path: str, body: bytes, headers: dict
@@ -345,7 +383,22 @@ class DiffusionRouter:
 
     async def generate_video(self, request: Request):
         """Route video generation to /v1/videos."""
-        return await self._forward_to_worker(request, "v1/videos")
+        candidate_workers = [
+            worker_url
+            for worker_url, support in self.worker_video_support.items()
+            if support is True
+        ]
+
+        if not candidate_workers:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "No video-capable workers available in current worker pool.",
+                },
+            )
+        return await self._forward_to_worker(
+            request, "v1/videos", worker_urls=candidate_workers
+        )
 
     async def health(self, request: Request):
         """Aggregated health status: healthy if at least one worker is alive."""
@@ -392,6 +445,7 @@ class DiffusionRouter:
         if normalized_url not in self.worker_request_counts:
             self.worker_request_counts[normalized_url] = 0
             self.worker_failure_counts[normalized_url] = 0
+            self.worker_video_support[normalized_url] = None
             if self.verbose:
                 print(f"[diffusion-router] Added new worker: {normalized_url}")
 
@@ -419,9 +473,11 @@ class DiffusionRouter:
             )
 
         try:
-            self.register_worker(worker_url)
+            normalized_url = self._normalize_worker_url(worker_url)
+            self.register_worker(normalized_url)
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
+        await self._refresh_worker_video_support(normalized_url)
         return {
             "status": "success",
             "worker_urls": list(self.worker_request_counts.keys()),
