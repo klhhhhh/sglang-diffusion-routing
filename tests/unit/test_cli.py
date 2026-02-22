@@ -52,5 +52,6 @@ def test_run_cli_calls_router_runner():
         args = mock_run.call_args.args[0]
         assert args.port == 30123
         assert args.worker_urls == ["http://localhost:10090"]
-        assert mock_run.call_args.kwargs["worker_urls"] == ["http://localhost:10090"]
+        router = mock_run.call_args.kwargs["router"]
+        assert "http://localhost:10090" in router.worker_request_counts
         assert mock_run.call_args.kwargs["log_prefix"] == "[sglang-d-router]"

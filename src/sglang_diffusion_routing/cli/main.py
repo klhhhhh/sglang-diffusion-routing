@@ -6,13 +6,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import threading
 
 from sglang_diffusion_routing import DiffusionRouter
+from sglang_diffusion_routing.launcher import config as _lcfg
 
 
 def _run_router_server(
     args: argparse.Namespace,
-    worker_urls: list[str] | None = None,
+    router: DiffusionRouter,
     log_prefix: str = "[router]",
 ) -> None:
     try:
@@ -25,7 +27,6 @@ def _run_router_server(
     worker_urls = list(
         worker_urls if worker_urls is not None else args.worker_urls or []
     )
-    router = DiffusionRouter(args, verbose=args.verbose)
     refresh_tasks = []
     for url in worker_urls:
         normalized_url = router.normalize_worker_url(url)
@@ -97,13 +98,49 @@ def _add_router_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--log-level", type=str, default="info", help="Uvicorn log level."
     )
+    parser.add_argument(
+        "--launcher-config",
+        type=str,
+        default=None,
+        dest="launcher_config",
+        help="YAML config for launching router managed workers (see examples/local_launcher.yaml).",
+    )
+
 
 
 def _handle_router(args: argparse.Namespace) -> int:
-    _run_router_server(
-        args, worker_urls=list(args.worker_urls), log_prefix="[sglang-d-router]"
-    )
-    return 0
+    log_prefix = "[sglang-d-router]"
+    backend = None
+
+    try:
+        router = DiffusionRouter(args, verbose=args.verbose)
+
+        if args.launcher_config is not None:
+            launcher_cfg = _lcfg.load_launcher_config(args.launcher_config)
+            wait_timeout = launcher_cfg.wait_timeout
+            backend = _lcfg.create_backend(launcher_cfg)
+            backend.launch()
+            threading.Thread(
+                target=backend.wait_ready_and_register,
+                kwargs=dict(
+                    register_fn=router.register_worker,
+                    timeout=wait_timeout,
+                    log_prefix=log_prefix,
+                ),
+                daemon=True,
+            ).start()
+
+        _run_router_server(args, router=router, log_prefix=log_prefix)
+        return 0
+    finally:
+        try:
+            asyncio.run(router.client.aclose())
+        except Exception:
+            pass
+        if backend is not None:
+            print(f"{log_prefix} shutting down managed workers...", flush=True)
+            backend.shutdown()
+            print(f"{log_prefix} all managed workers terminated.", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
