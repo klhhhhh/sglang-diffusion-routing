@@ -272,7 +272,7 @@ class DiffusionRouter:
                 )
                 if isinstance(task_type, str):
                     return task_type.upper() not in self._IMAGE_TASK_TYPES
-        except Exception:
+        except (httpx.RequestError, json.JSONDecodeError):
             return None
 
     async def _refresh_worker_video_support(self, worker_url: str) -> None:
