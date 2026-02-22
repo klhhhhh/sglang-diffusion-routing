@@ -32,6 +32,7 @@ def _run_router_server(
         refresh_tasks.append(router._refresh_worker_video_support(url))
 
     if refresh_tasks:
+
         async def _refresh_all_worker_video_support() -> None:
             await asyncio.gather(*refresh_tasks)
 

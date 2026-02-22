@@ -5,7 +5,7 @@ index 5bbe48a..6983774 100644
 @@ -113,14 +113,6 @@ with open('output.png', 'wb') as f:
  print('Saved to output.png')
  "
- 
+
 -# Video generation request
 -curl -X POST http://localhost:30081/generate_video \
 -    -H "Content-Type: application/json" \
@@ -25,10 +25,10 @@ index 5bbe48a..6983774 100644
 +- `POST /generate_video`: forwards to worker `/v1/videos`; rejects image-only workers (`T2I`/`I2I`/`TI2I`) with `400`.
  - `POST /update_weights_from_disk`: broadcast to healthy workers.
  - `GET|POST|PUT|DELETE /{path}`: catch-all proxy forwarding.
- 
+
 @@ -176,7 +168,7 @@ They are not part of default unit test collection (`pytest tests/unit -v`).
  Single benchmark:
- 
+
  ```bash
 -SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_router.py \
 +python tests/benchmarks/diffusion_router/bench_router.py \
@@ -37,7 +37,7 @@ index 5bbe48a..6983774 100644
      --num-prompts 20 \
 @@ -186,7 +178,7 @@ SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_router
  Algorithm comparison:
- 
+
  ```bash
 -SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_routing_algorithms.py \
 +python tests/benchmarks/diffusion_router/bench_routing_algorithms.py \
@@ -57,18 +57,18 @@ index 3910826..6a56211 100644
 +++ b/src/sglang_diffusion_routing/cli/main.py
 @@ -4,6 +4,7 @@
  from __future__ import annotations
- 
+
  import argparse
 +import asyncio
  import sys
- 
+
  from sglang_diffusion_routing import DiffusionRouter
 @@ -27,6 +28,7 @@ def _run_router_server(
      router = DiffusionRouter(args, verbose=args.verbose)
      for url in worker_urls:
          router.register_worker(url)
 +        asyncio.run(router._refresh_worker_video_support(url))
- 
+
      print(f"{log_prefix} starting router on {args.host}:{args.port}", flush=True)
      print(
 diff --git a/src/sglang_diffusion_routing/router/diffusion_router.py b/src/sglang_diffusion_routing/router/diffusion_router.py
@@ -77,11 +77,11 @@ index c2b9c87..8181d3f 100644
 +++ b/src/sglang_diffusion_routing/router/diffusion_router.py
 @@ -16,9 +16,11 @@ from starlette.responses import Response
  logger = logging.getLogger(__name__)
- 
+
  _METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 +_IMAGE_TASK_TYPES = {"T2I", "I2I", "TI2I"}
- 
- 
+
+
  class DiffusionRouter:
 +
      def __init__(self, args, verbose: bool = False):
@@ -100,7 +100,7 @@ index c2b9c87..8181d3f 100644
 @@ -139,14 +144,23 @@ class DiffusionRouter:
                  )
                  await asyncio.sleep(5)
- 
+
 -    def _use_url(self) -> str:
 -        """Select a worker URL based on the configured routing algorithm."""
 +    def _select_worker_by_routing(self, worker_urls: list[str] | None = None) -> str:
@@ -113,7 +113,7 @@ index c2b9c87..8181d3f 100644
 +        """
          if not self.worker_request_counts:
              raise RuntimeError("No workers registered in the pool")
- 
+
          valid_workers = [
              w for w in self.worker_request_counts if w not in self.dead_workers
          ]
@@ -122,11 +122,11 @@ index c2b9c87..8181d3f 100644
 +            valid_workers = [w for w in valid_workers if w in allowed]
          if not valid_workers:
              raise RuntimeError("No healthy workers available in the pool")
- 
+
 @@ -202,13 +216,14 @@ class DiffusionRouter:
              media_type=content_type,
          )
- 
+
 -    async def _forward_to_worker(self, request: Request, path: str) -> Response:
 -        """Forward a request to a selected worker and return the response."""
 +    async def _forward_to_worker(
@@ -145,7 +145,7 @@ index c2b9c87..8181d3f 100644
 @@ -243,6 +258,29 @@ class DiffusionRouter:
          finally:
              self._finish_url(worker_url)
- 
+
 +    async def _probe_worker_video_support(self, worker_url: str) -> bool | None:
 +        """Probe /v1/models and infer if this worker supports video generation."""
 +        try:
@@ -173,7 +173,7 @@ index c2b9c87..8181d3f 100644
          self, path: str, body: bytes, headers: dict
      ) -> list[dict]:
 @@ -345,7 +383,22 @@ class DiffusionRouter:
- 
+
      async def generate_video(self, request: Request):
          """Route video generation to /v1/videos."""
 -        return await self._forward_to_worker(request, "v1/videos")
@@ -193,7 +193,7 @@ index c2b9c87..8181d3f 100644
 +        return await self._forward_to_worker(
 +            request, "v1/videos", worker_urls=candidate_workers
 +        )
- 
+
      async def health(self, request: Request):
          """Aggregated health status: healthy if at least one worker is alive."""
 @@ -392,6 +445,7 @@ class DiffusionRouter:
@@ -203,10 +203,10 @@ index c2b9c87..8181d3f 100644
 +            self.worker_video_support[normalized_url] = None
              if self.verbose:
                  print(f"[diffusion-router] Added new worker: {normalized_url}")
- 
+
 @@ -419,9 +473,11 @@ class DiffusionRouter:
              )
- 
+
          try:
 -            self.register_worker(worker_url)
 +            normalized_url = self._normalize_worker_url(worker_url)
