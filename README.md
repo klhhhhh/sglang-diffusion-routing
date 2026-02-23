@@ -20,7 +20,7 @@ From repository root:
 # python3 -m venv .venv
 # source .venv/bin/activate
 # pip install uv
-git clone https://github.com/sglang/sglang-diffusion-routing.git
+git clone --recursive https://github.com/sglang/sglang-diffusion-routing.git
 cd sglang-diffusion-routing
 uv pip install .
 ```
@@ -28,7 +28,11 @@ uv pip install .
 Workers require SGLang diffusion support:
 
 ```bash
+# If cloned sglang-diffusion-routing without --recursive, run:
+# git submodule update --init --recursive
+cd sglang
 uv pip install "sglang[diffusion]" --prerelease=allow
+cd ..
 ```
 
 ## Quick Start
@@ -51,7 +55,7 @@ CUDA_VISIBLE_DEVICES=1 sglang serve \
     --model-path Qwen/Qwen-Image \
     --num-gpus 1 \
     --host 127.0.0.1 \
-    --port 30001
+    --port 30002
 ```
 
 ### Start the router
@@ -60,14 +64,14 @@ CUDA_VISIBLE_DEVICES=1 sglang serve \
 
 ```bash
 sglang-d-router --port 30081 \
-    --worker-urls http://localhost:30000 http://localhost:30001
+    --worker-urls http://localhost:30000 http://localhost:30002
 ```
 
 2. Module entry
 
 ```bash
 python -m sglang_diffusion_routing --port 30081 \
-    --worker-urls http://localhost:30000 http://localhost:30001
+    --worker-urls http://localhost:30000 http://localhost:30002
 ```
 
 3. Or start empty and add workers later:
@@ -75,6 +79,7 @@ python -m sglang_diffusion_routing --port 30081 \
 ```bash
 sglang-d-router --port 30081
 curl -X POST "http://localhost:30081/add_worker?url=http://localhost:30000"
+curl -X POST "http://localhost:30081/add_worker?url=http://localhost:30002"
 ```
 
 ### Test the router
@@ -113,16 +118,54 @@ with open('output.png', 'wb') as f:
 print('Saved to output.png')
 "
 
-# Video generation request
-curl -X POST http://localhost:30081/generate_video \
+
+curl -X POST http://localhost:30081/update_weights_from_disk \
     -H "Content-Type: application/json" \
-    -d '{
-        "model": "Qwen/Qwen-Image",
-        "prompt": "a flowing river"
-    }'
+    -d '{"model_path": "Qwen/Qwen-Image-2512"}'
+```
+
+### Python requests examples
+
+```python
+import requests
+import base64
+
+ROUTER = "http://localhost:30081"
+
+# Check router health
+resp = requests.get(f"{ROUTER}/health")
+print(resp.json())
+
+# List registered workers
+resp = requests.get(f"{ROUTER}/list_workers")
+print(resp.json())
+
+# Image generation request (returns base64-encoded image)
+resp = requests.post(f"{ROUTER}/generate", json={
+    "model": "Qwen/Qwen-Image",
+    "prompt": "a cute cat",
+    "num_images": 1,
+    "response_format": "b64_json",
+})
+data = resp.json()
+print(data)
+
+# Decode and save the image locally
+img = base64.b64decode(data["data"][0]["b64_json"])
+with open("output.png", "wb") as f:
+    f.write(img)
+print("Saved to output.png")
+
+# Video generation request
+resp = requests.post(f"{ROUTER}/generate_video", json={
+    "model": "Qwen/Qwen-Image",
+    "prompt": "a flowing river",
+})
+print(resp.json())
 
 # Check per-worker health and load
-curl http://localhost:30081/health_workers
+resp = requests.get(f"{ROUTER}/health_workers")
+print(resp.json())
 ```
 
 ## Router API
@@ -132,66 +175,10 @@ curl http://localhost:30081/health_workers
 - `GET /health`: aggregated router health.
 - `GET /health_workers`: per-worker health and active request counts.
 - `POST /generate`: forwards to worker `/v1/images/generations`.
-- `POST /generate_video`: forwards to worker `/v1/videos`.
+- `POST /generate_video`: forwards to worker `/v1/videos`; rejects image-only workers (`T2I`/`I2I`/`TI2I`) with `400`.
 - `POST /update_weights_from_disk`: broadcast to healthy workers.
 - `GET|POST|PUT|DELETE /{path}`: catch-all proxy forwarding.
-
-## `update_weights_from_disk` behavior
-
-Full details: [docs/update_weights_from_disk.md](docs/update_weights_from_disk.md)
-
-- The router forwards request payloads as-is to each healthy worker.
-- The router does not validate payload schema; payload semantics are worker-defined.
-- Worker servers must implement `POST /update_weights_from_disk`.
-
-Example:
-
-```bash
-curl -X POST http://localhost:30081/update_weights_from_disk \
-    -H "Content-Type: application/json" \
-    -d '{"model_path": "/path/to/new/weights"}'
-```
-
-Response shape:
-
-```json
-{
-  "results": [
-    {
-      "worker_url": "http://localhost:30000",
-      "status_code": 200,
-      "body": {
-        "ok": true
-      }
-    }
-  ]
-}
-```
-
-## Benchmark Scripts
-
-Benchmark scripts are available under `tests/benchmarks/diffusion_router/` and are intended for manual runs.
-They are not part of default unit test collection (`pytest tests/unit -v`).
-
-Single benchmark:
-
-```bash
-SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_router.py \
-    --model Qwen/Qwen-Image \
-    --num-workers 2 \
-    --num-prompts 20 \
-    --max-concurrency 4
-```
-
-Algorithm comparison:
-
-```bash
-SGLANG_USE_MODELSCOPE=TRUE python tests/benchmarks/diffusion_router/bench_routing_algorithms.py \
-    --model Qwen/Qwen-Image \
-    --num-workers 2 \
-    --num-prompts 20 \
-    --max-concurrency 4
-```
+- `POST /update_weights_from_disk`: broadcast to all healthy workers.
 
 ## Project Layout
 

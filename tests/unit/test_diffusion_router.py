@@ -52,7 +52,7 @@ class TestLeastRequest:
         router = router_factory(
             {"http://w1:8000": 5, "http://w2:8000": 2, "http://w3:8000": 8}
         )
-        selected = router._use_url()
+        selected = router._select_worker_by_routing()
         assert selected == "http://w2:8000"
         assert router.worker_request_counts["http://w2:8000"] == 3
 
@@ -61,7 +61,7 @@ class TestLeastRequest:
             {"http://w1:8000": 5, "http://w2:8000": 2, "http://w3:8000": 8},
             dead={"http://w2:8000"},
         )
-        selected = router._use_url()
+        selected = router._select_worker_by_routing()
         assert selected == "http://w1:8000"
         assert router.worker_request_counts["http://w1:8000"] == 6
 
@@ -74,7 +74,7 @@ class TestRoundRobin:
             {"http://w1:8000": 0, "http://w2:8000": 0, "http://w3:8000": 0},
             routing_algorithm="round-robin",
         )
-        results = [router._use_url() for _ in range(6)]
+        results = [router._select_worker_by_routing() for _ in range(6)]
         workers = list(router.worker_request_counts.keys())
         expected = [workers[i % 3] for i in range(6)]
         assert results == expected
@@ -87,7 +87,7 @@ class TestRoundRobin:
             dead={"http://w2:8000"},
             routing_algorithm="round-robin",
         )
-        results = [router._use_url() for _ in range(4)]
+        results = [router._select_worker_by_routing() for _ in range(4)]
         assert "http://w2:8000" not in results
         assert all(url in ("http://w1:8000", "http://w3:8000") for url in results)
 
@@ -105,7 +105,7 @@ class TestRandom:
             # Reset counts so they do not grow unbounded
             for url in router.worker_request_counts:
                 router.worker_request_counts[url] = 0
-            seen.add(router._use_url())
+            seen.add(router._select_worker_by_routing())
         assert seen == {"http://w1:8000", "http://w2:8000", "http://w3:8000"}
 
     def test_excludes_dead_workers(self, router_factory):
@@ -115,7 +115,7 @@ class TestRandom:
             routing_algorithm="random",
         )
         for _ in range(20):
-            url = router._use_url()
+            url = router._select_worker_by_routing()
             assert url != "http://w2:8000"
             router.worker_request_counts[url] -= 1  # reset increment
 
@@ -127,7 +127,7 @@ class TestErrorCases:
     def test_raises_when_no_workers(self, router_factory, algorithm):
         router = router_factory({}, routing_algorithm=algorithm)
         with pytest.raises(RuntimeError, match="No workers registered"):
-            router._use_url()
+            router._select_worker_by_routing()
 
     @pytest.mark.parametrize("algorithm", ["least-request", "round-robin", "random"])
     def test_raises_when_all_dead(self, router_factory, algorithm):
@@ -137,16 +137,16 @@ class TestErrorCases:
             routing_algorithm=algorithm,
         )
         with pytest.raises(RuntimeError, match="No healthy workers"):
-            router._use_url()
+            router._select_worker_by_routing()
 
 
 class TestCountManagement:
-    """Test that _use_url / _finish_url correctly track active request counts."""
+    """Test that _select_worker_by_routing / _finish_url correctly track active request counts."""
 
     @pytest.mark.parametrize("algorithm", ["least-request", "round-robin", "random"])
     def test_increment_and_finish(self, router_factory, algorithm):
         router = router_factory({"http://w1:8000": 0}, routing_algorithm=algorithm)
-        url = router._use_url()
+        url = router._select_worker_by_routing()
         assert router.worker_request_counts[url] == 1
         router._finish_url(url)
         assert router.worker_request_counts[url] == 0
