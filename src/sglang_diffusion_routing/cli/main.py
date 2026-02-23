@@ -106,12 +106,10 @@ def _add_router_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _handle_router(args: argparse.Namespace) -> int:
-    log_prefix = "[sglang-d-router]"
-    backend = None
+    log_prefix, backend, router = "[sglang-d-router]", None, None
 
     try:
         router = DiffusionRouter(args, verbose=args.verbose)
-
         if args.launcher_config is not None:
             launcher_cfg = _lcfg.load_launcher_config(args.launcher_config)
             wait_timeout = launcher_cfg.wait_timeout
@@ -120,7 +118,7 @@ def _handle_router(args: argparse.Namespace) -> int:
             threading.Thread(
                 target=backend.wait_ready_and_register,
                 kwargs=dict(
-                    register_fn=router.register_worker,
+                    register_func=router.register_worker,
                     timeout=wait_timeout,
                     log_prefix=log_prefix,
                 ),
@@ -130,10 +128,16 @@ def _handle_router(args: argparse.Namespace) -> int:
         _run_router_server(args, router=router, log_prefix=log_prefix)
         return 0
     finally:
-        try:
-            asyncio.run(router.client.aclose())
-        except Exception:
-            pass
+        # TODO (mengyang, shuwen, chenyang): refactor the exit logic of router and backend.
+        if router is not None:
+            try:
+                asyncio.run(router.client.aclose())
+            except Exception as exc:
+                print(
+                    f"{log_prefix} warning: failed to close router client: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         if backend is not None:
             print(f"{log_prefix} shutting down managed workers...", flush=True)
             backend.shutdown()

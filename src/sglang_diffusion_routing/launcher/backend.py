@@ -31,8 +31,7 @@ class WorkerLaunchResult:
 class LauncherBackend(ABC):
     """Interface for launching and managing SGLang diffusion workers.
 
-    Each backend implements a different deployment strategy (local subprocess,
-    Kubernetes, Ray etc.) but exposes the same lifecycle:
+    Each backend exposes the same lifecycle:
     launch → wait_ready_and_register → shutdown.
     """
 
@@ -43,16 +42,12 @@ class LauncherBackend(ABC):
     @abstractmethod
     def wait_ready_and_register(
         self,
-        register_fn: Callable[[str], None],
+        register_func: Callable[[str], None],
         timeout: int,
         log_prefix: str = "[launcher]",
     ) -> None:
-        """Wait for workers to become healthy and register each via register_fn.
-
-        Workers are checked concurrently; each is registered as soon as it is
-        healthy rather than waiting for all workers to be ready.
-        """
+        """Wait for workers to become healthy and register each via register_func."""
 
     @abstractmethod
     def shutdown(self) -> None:
-        """Terminate or clean up all managed workers."""
+        """Clean up all managed workers."""

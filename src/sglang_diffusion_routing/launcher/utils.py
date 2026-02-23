@@ -10,6 +10,9 @@ import time
 from collections.abc import Iterable
 
 import httpx
+import torch
+
+# TODO (mengyang, shuwen, chenyang): these utils should be clean up.
 
 
 def infer_connect_host(host: str) -> str:
@@ -52,16 +55,6 @@ def reserve_available_port(host: str, preferred_port: int, used_ports: set[int])
     )
 
 
-def detect_gpu_count() -> int:
-    """Return the number of CUDA GPUs available. Returns 0 on failure."""
-    try:
-        import torch
-
-        return int(torch.cuda.device_count())
-    except Exception:
-        return 0
-
-
 def resolve_gpu_pool(
     worker_gpu_ids: list[str] | None,
     env: dict[str, str] | None = None,
@@ -79,7 +72,7 @@ def resolve_gpu_pool(
         if parsed:
             return parsed
 
-    gpu_count = detect_gpu_count()
+    gpu_count = int(torch.cuda.device_count())
     if gpu_count > 0:
         return [str(i) for i in range(gpu_count)]
     return None
@@ -123,7 +116,7 @@ def build_gpu_assignments(
             gpu_pool = parsed
 
     if gpu_pool is None:
-        gpu_count = detect_gpu_count()
+        gpu_count = int(torch.cuda.device_count())
         if gpu_count > 0:
             gpu_pool = [str(i) for i in range(gpu_count)]
 

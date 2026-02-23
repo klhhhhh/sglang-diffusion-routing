@@ -45,7 +45,12 @@ class TestCLIParser:
 
 
 def test_run_cli_calls_router_runner():
+    def _mock_run_router_server(args, router, log_prefix):
+        for url in args.worker_urls:
+            router.register_worker(url)
+
     with mock.patch("sglang_diffusion_routing.cli.main._run_router_server") as mock_run:
+        mock_run.side_effect = _mock_run_router_server
         code = run_cli(["--port", "30123", "--worker-urls", "http://localhost:10090"])
         assert code == 0
         mock_run.assert_called_once()

@@ -81,7 +81,7 @@ class LocalLauncher(LauncherBackend):
 
     def wait_ready_and_register(
         self,
-        register_fn: Callable[[str], None],
+        register_func: Callable[[str], None],
         timeout: int,
         log_prefix: str = "[launcher]",
     ) -> None:
@@ -91,7 +91,7 @@ class LocalLauncher(LauncherBackend):
         threads = [
             threading.Thread(
                 target=self._wait_and_register_worker,
-                args=(w, register_fn, timeout, log_prefix),
+                args=(w, register_func, timeout, log_prefix),
             )
             for w in self._result.workers
         ]
@@ -103,7 +103,7 @@ class LocalLauncher(LauncherBackend):
     @staticmethod
     def _wait_and_register_worker(
         worker: LaunchedWorker,
-        register_fn: Callable[[str], None],
+        register_func: Callable[[str], None],
         timeout: int,
         log_prefix: str,
     ) -> None:
@@ -115,7 +115,7 @@ class LocalLauncher(LauncherBackend):
                 proc=worker.process,
                 log_prefix=log_prefix,
             )
-            register_fn(worker.url)
+            register_func(worker.url)
             print(f"{log_prefix} registered {worker.url}", flush=True)
         except Exception as exc:
             print(
@@ -140,11 +140,7 @@ def _launch_workers(
     worker_extra_args: str = "",
     log_prefix: str = "[launcher]",
 ) -> WorkerLaunchResult:
-    """Launch num_workers 'sglang serve' subprocesses.
-
-    Allocates ports and GPUs, starts each worker, and returns immediately
-    without waiting for health.
-    """
+    """Launch num_workers 'sglang serve' subprocesses."""
     if num_workers < 1:
         raise ValueError("num_workers must be >= 1")
     if num_gpus_per_worker < 1:
@@ -203,7 +199,7 @@ def _launch_single_worker(
     internal_port_stride: int,
     log_prefix: str,
 ) -> LaunchedWorker:
-    """Launch a single 'sglang serve' subprocess."""
+    """Launch a single SGLang Diffusion worker subprocess."""
     preferred_worker_port = worker_base_port + index * 2
     worker_port = reserve_available_port(worker_host, preferred_worker_port, used_ports)
 

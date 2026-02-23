@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 from omegaconf import DictConfig, OmegaConf
@@ -23,7 +22,6 @@ BACKEND_REGISTRY: dict[str, type[LauncherBackend]] = {
 def load_launcher_config(config_path: str) -> DictConfig:
     """Read a YAML config file and return a validated OmegaConf config.
 
-    Steps:
     1. Parse the YAML and extract the launcher mapping.
     2. Read the backend key to select the structured schema.
     3. Merge the YAML values onto the schema defaults.
@@ -40,9 +38,9 @@ def load_launcher_config(config_path: str) -> DictConfig:
             f"Config file must contain a top-level 'launcher' key: {config_path}"
         )
 
-    launcher_raw: dict[str, Any] = raw["launcher"]
+    launcher_raw = raw["launcher"]
     if not isinstance(launcher_raw, dict):
-        raise ValueError("'launcher' must be a mapping")
+        raise ValueError("'launcher' must be a dictionary")
 
     backend_name = launcher_raw.get("backend", "local")
     schema_cls = SCHEMA_REGISTRY.get(backend_name)
@@ -55,16 +53,12 @@ def load_launcher_config(config_path: str) -> DictConfig:
 
     schema = OmegaConf.structured(schema_cls)
     yaml_cfg = OmegaConf.create(launcher_raw)
-    merged: DictConfig = OmegaConf.merge(schema, yaml_cfg)  # type: ignore[assignment]
+    merged = OmegaConf.merge(schema, yaml_cfg)
     return merged
 
 
 def create_backend(config: DictConfig) -> LauncherBackend:
-    """Instantiate a LauncherBackend from a validated config.
-
-    The backend key selects the implementation class from
-    BACKEND_REGISTRY.
-    """
+    """Instantiate a LauncherBackend from a validated config."""
     backend_name = config.backend
     cls = BACKEND_REGISTRY.get(backend_name)
     if cls is None:
