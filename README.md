@@ -98,12 +98,6 @@ with open("output.png", "wb") as f:
     f.write(img)
 print("Saved to output.png")
 
-# Video generation request
-resp = requests.post(f"{ROUTER}/generate_video", json={
-    "model": "Qwen/Qwen-Image",
-    "prompt": "a flowing river",
-})
-print(resp.json())
 
 # Check per-worker health and load
 resp = requests.get(f"{ROUTER}/health_workers")
