@@ -4,16 +4,28 @@ A lightweight router for SGLang diffusion workers used in RL systems.
 
 It provides worker registration, load balancing, health checking, refit weights and request proxying for diffusion generation APIs.
 
-## API Reference
+---
 
-- `POST /add_worker`: add worker via query (`?url=`) or JSON body.
-- `GET /list_workers`: list registered workers.
-- `GET /health`: aggregated router health.
-- `GET /health_workers`: per-worker health and active request counts.
-- `POST /generate`: forwards to worker `/v1/images/generations`.
-- `POST /generate_video`: forwards to worker `/v1/videos`; rejects image-only workers (`T2I`/`I2I`/`TI2I`) with `400`.
-- `POST /update_weights_from_disk`: broadcast to all healthy workers.
-- `GET|POST|PUT|DELETE /{path}`: catch-all proxy forwarding.
+## Table of Contents
+
+- [Overview](#Overview)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+  - [Start diffusion workers](#start-diffusion-workers)
+  - [Start the router](#start-the-router)
+- [Router API](#router-api)
+  - [Inference Endpoints](#inference-endpoints)
+  - [Videos Result Query](#videos-result-query)
+  - [Model Discovery and Health Checks](#model-discovery-and-health-checks)
+  - [Worker Management APIs](#worker-management-apis)
+  - [Optional (business-dependent)](#optional-business-dependent)
+- [Acknowledgment](#acknowledgment)
+
+---
+
+## Overview
+
+---
 
 ## Installation
 
@@ -38,6 +50,8 @@ cd sglang
 uv pip install "sglang[diffusion]" --prerelease=allow
 cd ..
 ```
+
+---
 
 ## Quick Start
 
@@ -97,12 +111,26 @@ ROUTER = "http://localhost:30081"
 resp = requests.get(f"{ROUTER}/health")
 print(resp.json())
 
-# List registered workers
-resp = requests.get(f"{ROUTER}/list_workers")
+# Register a worker
+resp = requests.post(f"{ROUTER}/workers", json={"url": "http://localhost:30000"})
+print(resp.json())
+
+# List registered workers (with health/load)
+resp = requests.get(f"{ROUTER}/workers")
+print(resp.json())
+worker_id = resp.json()["workers"][0]["worker_id"]
+
+# Get / update worker details
+resp = requests.get(f"{ROUTER}/workers/{worker_id}")
+print(resp.json())
+resp = requests.put(
+    f"{ROUTER}/workers/{worker_id}",
+    json={"is_dead": False, "refresh_video_support": True},
+)
 print(resp.json())
 
 # Image generation request (returns base64-encoded image)
-resp = requests.post(f"{ROUTER}/generate", json={
+resp = requests.post(f"{ROUTER}/v1/images/generations", json={
     "model": "Qwen/Qwen-Image",
     "prompt": "a cute cat",
     "num_images": 1,
@@ -117,10 +145,15 @@ with open("output.png", "wb") as f:
     f.write(img)
 print("Saved to output.png")
 
-
-# Check per-worker health and load
-resp = requests.get(f"{ROUTER}/health_workers")
+# Video generation request
+resp = requests.post(f"{ROUTER}/v1/videos", json={
+    "model": "Qwen/Qwen-Image",
+    "prompt": "a flowing river",
+})
 print(resp.json())
+video_id = resp.json().get("video_id") or resp.json().get("id")
+if video_id:
+    print(requests.get(f"{ROUTER}/v1/videos/{video_id}").json())
 
 # Update weights from disk
 resp = requests.post(f"{ROUTER}/update_weights_from_disk", json={
@@ -135,11 +168,16 @@ print(resp.json())
 # Check router health
 curl http://localhost:30081/health
 
-# List registered workers
-curl http://localhost:30081/list_workers
+# Register a worker
+curl -X POST http://localhost:30081/workers \
+    -H "Content-Type: application/json" \
+    -d '{"url": "http://localhost:30000"}'
+
+# List registered workers (with health/load)
+curl http://localhost:30081/workers
 
 # Image generation request (returns base64-encoded image)
-curl -X POST http://localhost:30081/generate \
+curl -X POST http://localhost:30081/v1/images/generations \
     -H "Content-Type: application/json" \
     -d '{
         "model": "Qwen/Qwen-Image",
@@ -149,7 +187,7 @@ curl -X POST http://localhost:30081/generate \
     }'
 
 # Decode and save the image locally
-curl -s -X POST http://localhost:30081/generate \
+curl -s -X POST http://localhost:30081/v1/images/generations \
     -H "Content-Type: application/json" \
     -d '{
         "model": "Qwen/Qwen-Image",
@@ -165,11 +203,73 @@ with open('output.png', 'wb') as f:
 print('Saved to output.png')
 "
 
+# Video generation request
+curl -X POST http://localhost:30081/v1/videos \
+    -H "Content-Type: application/json" \
+    -d '{"model": "Qwen/Qwen-Image", "prompt": "a flowing river"}'
+
+# Poll a specific video job by video_id
+curl http://localhost:30081/v1/videos/<video_id>
+
 
 curl -X POST http://localhost:30081/update_weights_from_disk \
     -H "Content-Type: application/json" \
     -d '{"model_path": "Qwen/Qwen-Image-2512"}'
 ```
+
+---
+
+## Router API
+
+### Inference Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/images/generations` | Entrypoint for text-to-image generation |
+| `POST` | `/v1/videos` | Entrypoint for text-to-video generation |
+
+### Videos Result Query
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/videos` | List or poll video jobs |
+| `GET` | `/v1/videos/{video_id}` | Get status/details of a single video job |
+| `GET` | `/v1/videos/{video_id}/content` | Download generated video content |
+
+Video query routing is stable by `video_id`: router caches `video_id -> worker` on create (`POST /v1/videos`), then forwards detail/content queries to the same worker. Unknown `video_id` returns `404`.
+
+### Model Discovery and Health Checks
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/models` | OpenAI-style model discovery |
+| `GET` | `/health` | Basic health probe |
+
+`GET /v1/models` aggregates model lists from healthy workers and de-duplicates by model `id`.
+
+### Worker Management APIs
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/workers` | Register a worker |
+| `GET` | `/workers` | List workers (including health/load) |
+| `GET` | `/workers/{worker_id}` | Get worker details |
+| `PUT` | `/workers/{worker_id}` | Update worker configuration |
+| `DELETE` | `/workers/{worker_id}` | Deregister a worker |
+
+`worker_id` is the URL-encoded worker URL.
+
+`PUT /workers/{worker_id}` currently supports:
+- `is_dead` (boolean): quarantine (`true`) or recover (`false`) this worker.
+- `refresh_video_support` (boolean): re-probe worker `/v1/models` capability.
+
+### Optional (business-dependent)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/update_weights_from_disk` | Reload weights from disk (ops/admin use) |
+
+---
 
 ## Acknowledgment
 

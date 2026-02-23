@@ -40,7 +40,7 @@ def _run_router_server(
 
     print(f"{log_prefix} starting router on {args.host}:{args.port}", flush=True)
     print(
-        f"{log_prefix} workers: {list(router.worker_request_counts.keys()) or '(none - add via POST /add_worker)'}",
+        f"{log_prefix} workers: {list(router.worker_request_counts.keys()) or '(none - add via POST /workers)'}",
         flush=True,
     )
     uvicorn.run(
