@@ -28,8 +28,9 @@ def _run_router_server(
     router = DiffusionRouter(args, verbose=args.verbose)
     refresh_tasks = []
     for url in worker_urls:
-        router.register_worker(url)
-        refresh_tasks.append(router._refresh_worker_video_support(url))
+        normalized_url = router.normalize_worker_url(url)
+        router.register_worker(normalized_url)
+        refresh_tasks.append(router.refresh_worker_video_support(normalized_url))
 
     if refresh_tasks:
 

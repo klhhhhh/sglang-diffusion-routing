@@ -275,7 +275,7 @@ class DiffusionRouter:
         except (httpx.RequestError, json.JSONDecodeError):
             return None
 
-    async def _refresh_worker_video_support(self, worker_url: str) -> None:
+    async def refresh_worker_video_support(self, worker_url: str) -> None:
         """Refresh cached video capability for a single worker."""
         self.worker_video_support[worker_url] = await self._probe_worker_video_support(
             worker_url
@@ -335,7 +335,7 @@ class DiffusionRouter:
         }
 
     @staticmethod
-    def _normalize_worker_url(url: str) -> str:
+    def normalize_worker_url(url: str) -> str:
         if not isinstance(url, str):
             raise ValueError("worker_url must be a string")
 
@@ -441,7 +441,7 @@ class DiffusionRouter:
 
     def register_worker(self, url: str) -> None:
         """Register a worker URL if not already known."""
-        normalized_url = self._normalize_worker_url(url)
+        normalized_url = self.normalize_worker_url(url)
         if normalized_url not in self.worker_request_counts:
             self.worker_request_counts[normalized_url] = 0
             self.worker_failure_counts[normalized_url] = 0
@@ -473,11 +473,10 @@ class DiffusionRouter:
             )
 
         try:
-            normalized_url = self._normalize_worker_url(worker_url)
-            self.register_worker(normalized_url)
+            self.register_worker(worker_url)
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"error": str(exc)})
-        await self._refresh_worker_video_support(normalized_url)
+        await self.refresh_worker_video_support(worker_url)
         return {
             "status": "success",
             "worker_urls": list(self.worker_request_counts.keys()),
