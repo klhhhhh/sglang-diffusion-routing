@@ -41,6 +41,26 @@ cd ..
 
 ## Quick Start
 
+### Co-launch workers and router via YAML config
+
+Instead of starting workers manually, you can let the router spawn and manage them via a YAML config file.
+
+```bash
+sglang-d-router --port 30081 --launcher-config examples/local_launcher.yaml
+```
+
+```yaml
+launcher:
+  backend: local
+  model: Qwen/Qwen-Image
+  num_workers: 8
+  num_gpus_per_worker: 1
+  worker_base_port: 10090
+  wait_timeout: 600
+```
+
+### Manual Launch Workers and Connect to Router
+
 ```bash
 # If connect to HuggingFace is not allowed
 # You can set the environment variable SGLANG_USE_MODELSCOPE=TRUE
@@ -64,7 +84,6 @@ sglang-d-router --port 30081 \
 ```
 
 ## Demonstrative Examples
-
 
 ### With Python Requests
 
@@ -151,30 +170,6 @@ curl -X POST http://localhost:30081/update_weights_from_disk \
     -H "Content-Type: application/json" \
     -d '{"model_path": "Qwen/Qwen-Image-2512"}'
 ```
-
-### Auto-launch workers via YAML config
-
-Instead of starting workers manually, you can let the router spawn and manage
-them through a launcher backend.
-
-**Local subprocess launcher** (`examples/local_launcher.yaml`):
-
-```bash
-sglang-d-router --port 30081 --launcher-config examples/local_launcher.yaml
-```
-
-```yaml
-launcher:
-  backend: local
-  model: Qwen/Qwen-Image
-  num_workers: 2
-  num_gpus_per_worker: 1
-  worker_base_port: 10090
-  wait_timeout: 600
-```
-
-Fields not set in the YAML fall back to defaults defined in each backend's
-config dataclass (see `LocalLauncherConfig`).
 
 ## Acknowledgment
 
