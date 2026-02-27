@@ -469,9 +469,18 @@ class DiffusionRouter:
             raise ValueError("worker_id cannot be empty")
         return cls.normalize_worker_url(decoded)
 
+    @staticmethod
+    def build_worker_display_id(worker_url: str) -> str:
+        """Build a human-readable worker identifier from URL."""
+        parsed = urlsplit(worker_url)
+        if parsed.netloc:
+            return parsed.netloc
+        return worker_url
+
     def _build_worker_payload(self, worker_url: str) -> dict:
         return {
             "worker_id": self.encode_worker_id(worker_url),
+            "display_id": self.build_worker_display_id(worker_url),
             "url": worker_url,
             "active_requests": self.worker_request_counts.get(worker_url, 0),
             "is_dead": worker_url in self.dead_workers,

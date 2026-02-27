@@ -135,6 +135,9 @@ with open("output.png", "wb") as f:
 print("Saved to output.png")
 
 # Video generation request
+# Note that Qwen-Image does not support video generation,
+# so this request will fail.
+
 resp = requests.post(f"{ROUTER}/v1/videos", json={
     "model": "Qwen/Qwen-Image",
     "prompt": "a flowing river",
@@ -206,8 +209,6 @@ curl -X POST http://localhost:30081/update_weights_from_disk \
     -d '{"model_path": "Qwen/Qwen-Image-2512"}'
 ```
 
----
-
 ## Router API
 
 ### Inference Endpoints
@@ -246,7 +247,7 @@ Video query routing is stable by `video_id`: router caches `video_id -> worker` 
 | `PUT` | `/workers/{worker_id}` | Update worker configuration |
 | `DELETE` | `/workers/{worker_id}` | Deregister a worker |
 
-`worker_id` is the URL-encoded worker URL.
+`worker_id` is the URL-encoded worker URL (machine-oriented), and each worker payload also includes `display_id` as a human-readable ID.
 
 `PUT /workers/{worker_id}` currently supports:
 - `is_dead` (boolean): quarantine (`true`) or recover (`false`) this worker.
@@ -258,7 +259,6 @@ Video query routing is stable by `video_id`: router caches `video_id -> worker` 
 |---|---|---|
 | `POST` | `/update_weights_from_disk` | Reload weights from disk on all healthy workers |
 
----
 
 ## Acknowledgment
 
