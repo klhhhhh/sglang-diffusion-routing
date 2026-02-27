@@ -38,6 +38,8 @@ class DiffusionRouter:
         self.worker_video_support: dict[str, bool | None] = {}
         # quarantined workers excluded from routing
         self.dead_workers: set[str] = set()
+        # record workers in sleeping status 
+        self.sleeping_workers: set[str] = set()
         # video_id -> worker URL mapping for stable query routing
         self.video_job_to_worker: dict[str, str] = {}
         self._health_task: asyncio.Task | None = None
@@ -81,6 +83,8 @@ class DiffusionRouter:
         self.app.get("/v1/models")(self.get_models)
         self.app.get("/health")(self.health)
         self.app.post("/update_weights_from_disk")(self.update_weights_from_disk)
+        self.app.post("/release_memory_occupation")(self.release_memory_occupation)
+        self.app.post("/resume_memory_occupation")(self.resume_memory_occupation)
         self.app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])(
             self.proxy
         )
@@ -702,6 +706,58 @@ class DiffusionRouter:
         results = await self._broadcast_to_workers(
             "update_weights_from_disk", body, headers
         )
+        return JSONResponse(content={"results": results})
+
+    async def release_memory_occupation(self, request: Request):
+        """Broadcast sleep to all healthy workers and mark them as sleeping on success."""
+        healthy_workers = [
+            url for url in self.worker_request_counts if url not in self.dead_workers
+        ]
+        if not healthy_workers:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "No healthy workers available in the pool"},
+            )
+
+        body = await request.body()
+        headers = dict(request.headers)
+        headers.pop("content-length", None)
+        headers.setdefault("content-type", "application/json")
+
+        results = await self._broadcast_to_workers("release_memory_occupation", body, headers)
+
+        for item in results:
+            if item.get("status_code") == 200:
+                self.sleeping_workers.add(item["worker_url"])
+
+        return JSONResponse(content={"results": results})
+
+
+    async def resume_memory_occupation(self, request: Request):
+        """Broadcast wake to all healthy workers and unmark sleeping on success."""
+        healthy_workers = [
+            url for url in self.worker_request_counts if url not in self.dead_workers
+        ]
+        if not healthy_workers:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "No healthy workers available in the pool"},
+            )
+        body = await request.body()
+        headers = dict(request.headers)
+        headers.pop("content-length", None)
+        headers.setdefault("content-type", "application/json")
+
+        results = await self._broadcast_to_workers("resume_memory_occupation", body, headers)
+
+        for item in results:
+            if item.get("status_code") == 200:
+                self.sleeping_workers.discard(item["worker_url"])
+                # Reset health failure counter on successful wake:
+                # waking is an explicit recovery point and should not inherit failures
+                # accumulated during intentional sleep.
+                self.worker_failure_counts[item["worker_url"]] = 0
+
         return JSONResponse(content={"results": results})
 
     def register_worker(self, url: str) -> None:
