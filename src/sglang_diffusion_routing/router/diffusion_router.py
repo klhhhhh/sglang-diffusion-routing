@@ -387,13 +387,11 @@ class DiffusionRouter:
         """
         if path == "resume_memory_occupation":
             # Wake is a recovery point: allow waking workers that were marked dead during sleep.
-            urls = [
-                u for u in self.sleeping_workers
-                if u in self.worker_request_counts
-            ]
+            urls = [u for u in self.sleeping_workers if u in self.worker_request_counts]
         else:
             urls = [
-                u for u in self.worker_request_counts
+                u
+                for u in self.worker_request_counts
                 if u not in self.dead_workers and u not in self.sleeping_workers
             ]
 
